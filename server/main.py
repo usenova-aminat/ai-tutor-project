@@ -1,65 +1,33 @@
 import asyncio
 import logging
 
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import CommandStart
+from aiogram import Bot, Dispatcher
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import select
-
-from models_db import Base, User   # ✅ ВАЖНО: правильный импорт
-
-# --- НАСТРОЙКИ ---
-BOT_TOKEN = "8513323651:AAGWfP3s3f5R8RawE1Yj37vXMiSD6NL18rU"
-DATABASE_URL = "postgresql+asyncpg://postgres:123456@localhost:5433/tutor_db"
-
-# --- БАЗА ДАННЫХ ---
-engine = create_async_engine(DATABASE_URL, echo=True)
-async_session = sessionmaker(
-    engine, expire_on_commit=False, class_=AsyncSession
-)
-
-# --- БОТ ---
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+from config import BOT_TOKEN
+from db import engine
+from models_db import Base
+from handlers.start import register_start_handlers
 
 logging.basicConfig(level=logging.INFO)
 
-@dp.message(CommandStart())
-async def cmd_start(message: types.Message):
-    async with async_session() as session:
-        result = await session.execute(
-            select(User).where(User.tg_id == message.from_user.id)
-        )
-        user = result.scalar_one_or_none()
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
 
-        if not user:
-            user = User(
-                tg_id=message.from_user.id,
-                username=message.from_user.username
-            )
-            session.add(user)
-            await session.commit()
+# подключаем обработчики
+register_start_handlers(dp)
 
-            text = (
-                f"Привет, {message.from_user.first_name}! 👋\n"
-                f"Я зарегистрировал тебя. Твой уровень: A1."
-            )
-        else:
-            text = (
-                f"С возвращением, {message.from_user.first_name}! ✨\n"
-                f"Твой текущий уровень: {user.level}."
-            )
-
-        await message.answer(text)
 
 async def main():
+    # создаём таблицы (если нет)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    print("🤖 Бот запущен")
+    logging.info("🤖 Bot started")
     await dp.start_polling(bot)
 
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Bot stopped")
